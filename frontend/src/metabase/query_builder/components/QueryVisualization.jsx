@@ -62,7 +62,7 @@ export default class QueryVisualization extends Component {
 
   static defaultProps = {
     // NOTE: this should be more dynamic from the backend, it's set based on the query lang
-    maxTableRows: 2000,
+    maxTableRows: 20000,
   };
 
   _getStateFromProps(props) {

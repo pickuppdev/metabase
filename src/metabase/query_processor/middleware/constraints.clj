@@ -8,7 +8,7 @@
 
 (def ^:private max-results
   "General maximum number of rows to return from an API query."
-  10000)
+  20000)
 
 (def default-query-constraints
   "Default map of constraints that we apply on dataset queries executed by the api."
@@ -25,14 +25,19 @@
     constraints
     (assoc constraints :max-results-bare-rows max-results)))
 
-(defn- merge-default-constraints [constraints]
-  (merge default-query-constraints constraints))
+(defn- escape-native-query [type]
+  (def type-query (fn [constraints]
+    (merge default-query-constraints constraints)))
+  (def type-native (fn [constraints]
+    (merge {:max-results max-results, :max-results-bare-rows max-results} constraints)))
+  (if (= type "native") type-native type-query)
+)
 
 (defn- add-default-userland-constraints*
   "Add default values of `:max-results` and `:max-results-bare-rows` to `:constraints` map `m`."
   [{{:keys [add-default-userland-constraints?]} :middleware, :as query}]
   (cond-> query
-    add-default-userland-constraints? (update :constraints (comp ensure-valid-constraints merge-default-constraints))))
+    add-default-userland-constraints? (update :constraints (comp ensure-valid-constraints (escape-native-query (get-in query [:type]))))))
 
 (defn add-default-userland-constraints
   "Middleware that optionally adds default `max-results` and `max-results-bare-rows` constraints to queries, meant for

@@ -27,6 +27,7 @@ const DownloadButton = ({
   url,
   params,
   extensions,
+  onClick,
   ...props
 }) => (
   <Box>
@@ -37,14 +38,14 @@ const DownloadButton = ({
         className="text-white-hover bg-brand-hover rounded cursor-pointer full hover-parent hover--inherit"
         align="center"
         px={1}
-        onClick={e => {
+        onClick={onClick || (e => {
           if (window.OSX) {
             // prevent form from being submitted normally
             e.preventDefault();
             // download using the API provided by the OS X app
             window.OSX.download(method, url, params, extensions);
           }
-        }}
+        })}
         {...props}
       >
         <Icon name={children} size={32} mr={1} color={colorForType(children)} />
@@ -63,12 +64,14 @@ DownloadButton.propTypes = {
   method: PropTypes.string,
   params: PropTypes.object,
   extensions: PropTypes.array,
+  onClick: PropTypes.func,
 };
 
 DownloadButton.defaultProps = {
   method: "POST",
   params: {},
   extensions: [],
+  onClick: undefined,
 };
 
 export default DownloadButton;
