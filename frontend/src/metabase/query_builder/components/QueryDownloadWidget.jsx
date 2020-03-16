@@ -59,7 +59,7 @@ const QueryDownloadWidget = ({
                 key={type}
                 onClick={(e) => {
                   e.preventDefault()
-                  const text = result.data.rows.map(r => r.map(c => String(c).replace(/[\r\n\t]/g, ' ')).join('\t')).join('\n')
+                  const text = result.data.rows.map(r => r.map(c => String(c == null ? '' : c).replace(/[\r\n\t]/g, ' ')).join('\t')).join('\n')
                   navigator.clipboard
                     .writeText(text)
                     .then(() => window.alert(t`Result copied to clipboard.`));
