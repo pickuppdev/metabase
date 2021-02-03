@@ -9,6 +9,7 @@ import { push } from "react-router-redux";
 import MetabaseAnalytics from "metabase/lib/analytics";
 import { clearGoogleAuthCredentials } from "metabase/lib/auth";
 
+import { refreshSiteSettings } from "metabase/redux/settings";
 import { refreshCurrentUser } from "metabase/redux/user";
 
 import { SessionApi } from "metabase/services";
@@ -22,8 +23,10 @@ export const login = createThunkAction(
     await SessionApi.create(credentials);
 
     MetabaseAnalytics.trackEvent("Auth", "Login");
-    // TODO: redirect after login (carry user to intended destination)
-    await dispatch(refreshCurrentUser());
+    await Promise.all([
+      dispatch(refreshCurrentUser()),
+      dispatch(refreshSiteSettings()),
+    ]);
     dispatch(push(redirectUrl || "/"));
   },
 );
@@ -43,8 +46,10 @@ export const loginGoogle = createThunkAction(LOGIN_GOOGLE, function(
 
       MetabaseAnalytics.trackEvent("Auth", "Google Auth Login");
 
-      // TODO: redirect after login (carry user to intended destination)
-      await dispatch(refreshCurrentUser());
+      await Promise.all([
+        dispatch(refreshCurrentUser()),
+        dispatch(refreshSiteSettings()),
+      ]);
       dispatch(push(redirectUrl || "/"));
     } catch (error) {
       await clearGoogleAuthCredentials();

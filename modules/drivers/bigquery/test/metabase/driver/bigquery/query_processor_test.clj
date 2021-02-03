@@ -1,68 +1,86 @@
 (ns metabase.driver.bigquery.query-processor-test
-  (:require [clojure
-             [string :as str]
-             [test :refer :all]]
-            [honeysql
-             [core :as hsql]
-             [format :as hformat]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer :all]
+            [honeysql.core :as hsql]
+            [honeysql.format :as hformat]
             [java-time :as t]
-            [metabase
-             [driver :as driver]
-             [models :refer [Database Field]]
-             [query-processor :as qp]
-             [query-processor-test :as qp.test]
-             [sync :as sync]
-             [test :as mt]
-             [util :as u]]
+            [metabase.driver :as driver]
             [metabase.driver.bigquery :as bigquery]
             [metabase.driver.bigquery.query-processor :as bigquery.qp]
             [metabase.driver.sql.query-processor :as sql.qp]
+            [metabase.models :refer [Database Field Table]]
+            [metabase.query-processor :as qp]
+            [metabase.query-processor-test :as qp.test]
             [metabase.query-processor.store :as qp.store]
+            [metabase.sync :as sync]
+            [metabase.test :as mt]
             [metabase.test.data.bigquery :as bigquery.tx]
             [metabase.test.util.timezone :as tu.tz]
+            [metabase.util :as u]
             [metabase.util.honeysql-extensions :as hx]
             [toucan.util.test :as tt]))
 
 (deftest native-query-test
   (mt/test-driver :bigquery
-    (is (= [[100]
-            [99]]
-           (get-in
-            (qp/process-query
-              {:native   {:query (str "SELECT `test_data.venues`.`id` "
-                                      "FROM `test_data.venues` "
-                                      "ORDER BY `test_data.venues`.`id` DESC "
-                                      "LIMIT 2;")}
-               :type     :native
-               :database (mt/id)})
-            [:data :rows])))
-
-    (is (= [{:name         "venue_id"
-             :display_name "venue_id"
-             :source       :native
-             :base_type    :type/Integer
-             :field_ref    [:field-literal "venue_id" :type/Integer]}
-            {:name         "user_id"
-             :display_name "user_id"
-             :source       :native
-             :base_type    :type/Integer
-             :field_ref    [:field-literal "user_id" :type/Integer]}
-            {:name         "checkins_id"
-             :display_name "checkins_id"
-             :source       :native
-             :base_type    :type/Integer
-             :field_ref    [:field-literal "checkins_id" :type/Integer]}]
-           (qp.test/cols
+    (is (= [[100] [99]]
+           (mt/rows
              (qp/process-query
-               {:native   {:query (str "SELECT `test_data.checkins`.`venue_id` AS `venue_id`, "
-                                       "       `test_data.checkins`.`user_id` AS `user_id`, "
-                                       "       `test_data.checkins`.`id` AS `checkins_id` "
-                                       "FROM `test_data.checkins` "
-                                       "LIMIT 2")}
-                :type     :native
-                :database (mt/id)})))
-        (str "make sure that BigQuery native queries maintain the column ordering specified in the SQL -- "
-             "post-processing ordering shouldn't apply (Issue #2821)"))))
+              (mt/native-query
+                {:query (str "SELECT `v3_test_data.venues`.`id` "
+                             "FROM `v3_test_data.venues` "
+                             "ORDER BY `v3_test_data.venues`.`id` DESC "
+                             "LIMIT 2;")})))))
+
+    (testing (str "make sure that BigQuery native queries maintain the column ordering specified in the SQL -- "
+                  "post-processing ordering shouldn't apply (metabase#2821)")
+      (is (= [{:name         "venue_id"
+               :display_name "venue_id"
+               :source       :native
+               :base_type    :type/Integer
+               :field_ref    [:field-literal "venue_id" :type/Integer]}
+              {:name         "user_id"
+               :display_name "user_id"
+               :source       :native
+               :base_type    :type/Integer
+               :field_ref    [:field-literal "user_id" :type/Integer]}
+              {:name         "checkins_id"
+               :display_name "checkins_id"
+               :source       :native
+               :base_type    :type/Integer
+               :field_ref    [:field-literal "checkins_id" :type/Integer]}]
+             (qp.test/cols
+               (qp/process-query
+                {:native   {:query (str "SELECT `v3_test_data.checkins`.`venue_id` AS `venue_id`, "
+                                        "       `v3_test_data.checkins`.`user_id` AS `user_id`, "
+                                        "       `v3_test_data.checkins`.`id` AS `checkins_id` "
+                                        "FROM `v3_test_data.checkins` "
+                                        "LIMIT 2")}
+                 :type     :native
+                 :database (mt/id)})))))
+
+    (testing "queries with array result columns deserialize properly (metabase#10275)"
+      (is (= [[["foo" "bar"]
+               [1 2]
+               [3.14159265359 0.5772156649]
+               [1234M 5678M]
+               [#t "2018-01-01T00:00Z[UTC]" #t "2018-12-31T00:00Z[UTC]"]
+               [#t "12:34" #t "20:01:13.230"]
+               [#t "1957-05-17T03:35Z[UTC]" #t "2018-06-01T01:15:34.120Z[UTC]"]
+               [#t "2014-09-27T20:30:00.450Z[UTC]" #t "2020-09-27T14:57:00.450Z[UTC]"]
+               []]]
+             (mt/rows
+              (qp/process-query
+               {:native   {:query (str "SELECT ['foo', 'bar'], "
+                                       "[1, 2], "
+                                       "[3.14159265359, 0.5772156649], "
+                                       "[NUMERIC '1234', NUMERIC '5678'], "
+                                       "[DATE '2018-01-01', DATE '2018-12-31'], "
+                                       "[TIME '12:34:00.00', TIME '20:01:13.23'], "
+                                       "[DATETIME '1957-05-17 03:35:00.00', DATETIME '2018-06-01 01:15:34.12'], "
+                                       "[TIMESTAMP '2014-09-27 12:30:00.45-08', TIMESTAMP '2020-09-27 09:57:00.45-05'], "
+                                       "[]")}
+                 :type     :native
+                 :database (mt/id)})))))))
 
 (deftest aggregations-test
   (mt/test-driver :bigquery
@@ -85,11 +103,11 @@
                rows))))
 
     (testing "let's make sure we're generating correct HoneySQL + SQL for aggregations"
-      (is (= {:select   [[(hx/identifier :field "test_data.venues" "price")
+      (is (= {:select   [[(hx/identifier :field "v3_test_data.venues" "price")
                           (hx/identifier :field-alias "price")]
-                         [(hsql/call :avg (hx/identifier :field "test_data.venues" "category_id"))
+                         [(hsql/call :avg (hx/identifier :field "v3_test_data.venues" "category_id"))
                           (hx/identifier :field-alias "avg")]]
-              :from     [(hx/identifier :table "test_data.venues")]
+              :from     [(hx/identifier :table "v3_test_data.venues")]
               :group-by [(hx/identifier :field-alias "price")]
               :order-by [[(hx/identifier :field-alias "avg") :asc]]}
              (mt/with-everything-store
@@ -100,11 +118,12 @@
                    :breakout    [$price]
                    :order-by    [[:asc [:aggregation 0]]]})))))
 
-      (is (= {:query      (str "SELECT `test_data.venues`.`price` AS `price`,"
-                               " avg(`test_data.venues`.`category_id`) AS `avg` "
-                               "FROM `test_data.venues` "
+      (is (= {:query      (str "SELECT `v3_test_data.venues`.`price` AS `price`,"
+                               " avg(`v3_test_data.venues`.`category_id`) AS `avg` "
+                               "FROM `v3_test_data.venues` "
                                "GROUP BY `price` "
                                "ORDER BY `avg` ASC, `price` ASC")
+              :params     nil
               :table-name "venues"
               :mbql?      true}
              (qp/query->native
@@ -113,13 +132,13 @@
 
 (deftest join-alias-test
   (mt/test-driver :bigquery
-    (is (= (str "SELECT `categories__via__category_id`.`name` AS `name`,"
+    (is (= (str "SELECT `categories__via__category_id`.`name` AS `categories__via__category_id__name`,"
                 " count(*) AS `count` "
-                "FROM `test_data.venues` "
-                "LEFT JOIN `test_data.categories` `categories__via__category_id`"
-                " ON `test_data.venues`.`category_id` = `categories__via__category_id`.`id` "
-                "GROUP BY `name` "
-                "ORDER BY `name` ASC")
+                "FROM `v3_test_data.venues` "
+                "LEFT JOIN `v3_test_data.categories` `categories__via__category_id`"
+                " ON `v3_test_data.venues`.`category_id` = `categories__via__category_id`.`id` "
+                "GROUP BY `categories__via__category_id__name` "
+                "ORDER BY `categories__via__category_id__name` ASC")
            ;; normally for test purposes BigQuery doesn't support foreign keys so override the function that checks
            ;; that and make it return `true` so this test proceeds as expected
            (with-redefs [driver/supports? (constantly true)]
@@ -166,32 +185,28 @@
                (native-timestamp-query db "2018-08-31 00:00:00+07" "Asia/Jakarta"))))
         "Similar to the above test, but covers a positive offset")))
 
-
 ;; if I run a BigQuery query, does it get a remark added to it?
 (defn- query->native [query]
   (let [native-query (atom nil)]
-    (with-redefs [bigquery/process-native* (fn [_ sql]
+    (with-redefs [bigquery/process-native* (fn [_ _ sql _]
                                              (reset! native-query sql)
                                              (throw (Exception. "Done.")))]
-      (qp/process-query {:database (mt/id)
-                         :type     :query
-                         :query    {:source-table (mt/id :venues)
-                                    :limit        1}
-                         :info     {:executed-by 1000
-                                    :query-hash  (byte-array [1 2 3 4])}})
+      (u/ignore-exceptions
+        (qp/process-query query))
       @native-query)))
 
 (deftest remark-test
   (mt/test-driver :bigquery
     (is (= (str
             "-- Metabase:: userID: 1000 queryType: MBQL queryHash: 01020304\n"
-            "SELECT `test_data.venues`.`id` AS `id`,"
-            " `test_data.venues`.`name` AS `name`,"
-            " `test_data.venues`.`category_id` AS `category_id`,"
-            " `test_data.venues`.`latitude` AS `latitude`,"
-            " `test_data.venues`.`longitude` AS `longitude`,"
-            " `test_data.venues`.`price` AS `price` "
-            "FROM `test_data.venues` "
+            "SELECT"
+            " `v3_test_data.venues`.`id` AS `id`,"
+            " `v3_test_data.venues`.`name` AS `name`,"
+            " `v3_test_data.venues`.`category_id` AS `category_id`,"
+            " `v3_test_data.venues`.`latitude` AS `latitude`,"
+            " `v3_test_data.venues`.`longitude` AS `longitude`,"
+            " `v3_test_data.venues`.`price` AS `price` "
+            "FROM `v3_test_data.venues` "
             "LIMIT 1")
            (query->native
             {:database (mt/id)
@@ -202,17 +217,42 @@
                         :query-hash  (byte-array [1 2 3 4])}}))
         "if I run a BigQuery query, does it get a remark added to it?")))
 
+;; if I run a BigQuery query with include-user-id-and-hash set to false, does it get a remark added to it?
+(deftest remove-remark-test
+  (mt/test-driver :bigquery
+    (is (=  (str
+            "SELECT `v3_test_data.venues`.`id` AS `id`,"
+            " `v3_test_data.venues`.`name` AS `name` "
+            "FROM `v3_test_data.venues` "
+            "LIMIT 1")
+    (tt/with-temp* [Database [db {:engine :bigquery
+                                  :details (assoc (:details (mt/db))
+                                                  :include-user-id-and-hash false)}]
+                    Table    [table {:name "venues" :db_id (u/get-id db)}]
+                    Field    [_     {:table_id (u/get-id table)
+                                    :name "id"
+                                    :base_type "type/Integer"}]
+                    Field    [_     {:table_id (u/get-id table)
+                                    :name "name"
+                                    :base_type "type/Text"}]]
+      (query->native
+        {:database (u/get-id db)
+        :type     :query
+        :query    {:source-table (u/get-id table)
+                    :limit        1}
+        :info     {:executed-by 1000
+                    :query-hash  (byte-array [1 2 3 4])}}))))))
+
 (deftest unprepare-params-test
   (mt/test-driver :bigquery
     (is (= [["Red Medicine"]]
            (qp.test/rows
              (qp/process-query
-               {:database (mt/id)
-                :type     :native
-                :native   {:query  (str "SELECT `test_data.venues`.`name` AS `name` "
-                                        "FROM `test_data.venues` "
-                                        "WHERE `test_data.venues`.`name` = ?")
-                           :params ["Red Medicine"]}})))
+              (mt/native-query
+                {:query  (str "SELECT `v3_test_data.venues`.`name` AS `name` "
+                              "FROM `v3_test_data.venues` "
+                              "WHERE `v3_test_data.venues`.`name` = ?")
+                 :params ["Red Medicine"]}))))
         (str "Do we properly unprepare, and can we execute, queries that still have parameters for one reason or "
              "another? (EE #277)"))))
 
@@ -233,12 +273,12 @@
     :type  :timestamp
     :as    {:date     (t/local-date "2019-12-10")
             :datetime (t/local-date-time "2019-12-10T14:47:00")}}
-   (let [unix-ts (sql.qp/unix-timestamp->timestamp :bigquery :seconds :some_field)]
+   (let [unix-ts (sql.qp/unix-timestamp->honeysql :bigquery :seconds :some_field)]
      {:value unix-ts
       :type  :timestamp
       :as    {:date     (hx/cast :date unix-ts)
               :datetime (hx/cast :datetime unix-ts)}})
-   (let [unix-ts (sql.qp/unix-timestamp->timestamp :bigquery :milliseconds :some_field)]
+   (let [unix-ts (sql.qp/unix-timestamp->honeysql :bigquery :milliseconds :some_field)]
      {:value unix-ts
       :type  :timestamp
       :as    {:date     (hx/cast :date unix-ts)
@@ -261,11 +301,17 @@
       ;; `hx/identifier`s to SQL
       (binding [sql.qp/*table-alias* "ABC"
                 *print-meta*         true]
-        (let [fields {:date      date-field
-                      :datetime  datetime-field
-                      :timestamp timestamp-field}]
+        (let [fields                     {:date      date-field
+                                          :datetime  datetime-field
+                                          :timestamp timestamp-field}
+              build-honeysql-clause-head (fn [{:keys [honeysql]} field-arg args]
+                                           (if (fn? honeysql)
+                                             (honeysql field-arg args)
+                                             (into [honeysql field-arg] args)))]
           (doseq [clause [{:args 2, :mbql :=, :honeysql :=}
-                          {:args 2, :mbql :!=, :honeysql :not=}
+                          {:args 2, :mbql :!=, :honeysql (fn [identifier args]
+                                                           [:or (into [:not= identifier] args)
+                                                            [:= identifier nil]])}
                           {:args 2, :mbql :>, :honeysql :>}
                           {:args 2, :mbql :>=, :honeysql :>=}
                           {:args 2, :mbql :<, :honeysql :<}
@@ -290,8 +336,9 @@
                                                       (repeat (dec (:args clause)) filter-value))
                             expected-identifier (hx/identifier :field "ABC" (name temporal-type))
                             expected-value      (get-in value [:as temporal-type] (:value value))
-                            expected-clause     (into [(:honeysql clause) expected-identifier]
-                                                      (repeat (dec (:args clause)) expected-value))]
+                            expected-clause     (build-honeysql-clause-head clause
+                                                                            expected-identifier
+                                                                            (repeat (dec (:args clause)) expected-value))]
                         (testing (format "\nreconcile %s -> %s"
                                          (into [(:mbql clause) temporal-type] (repeat (dec (:args clause)) (:type value)))
                                          (into [(:mbql clause) temporal-type] (repeat (dec (:args clause)) temporal-type)))
@@ -300,14 +347,17 @@
                                            (#'bigquery.qp/temporal-type filter-value))
                             (is (= expected-clause
                                    (sql.qp/->honeysql :bigquery filter-clause))))))))))))
+
           (testing "\ndate extraction filters"
             (doseq [[temporal-type field] fields
                     :let                  [identifier          (hx/identifier :field "ABC" (name temporal-type))
-                                           expected-identifier (if (= temporal-type :timestamp)
-                                                                 identifier
-                                                                 (hx/cast :timestamp identifier))]]
-              (is (= [:= (hsql/call :extract :dayofweek expected-identifier) 1]
-                     (sql.qp/->honeysql :bigquery [:= [:datetime-field [:field-id (:id field)] :day-of-week] 1]))))))))))
+                                           expected-identifier (case temporal-type
+                                                                 :date      identifier
+                                                                 :datetime  (hx/cast :timestamp identifier)
+                                                                 :timestamp identifier)]]
+              (testing (format "\ntemporal-type = %s" temporal-type)
+                (is (= [:= (hsql/call :extract :dayofweek expected-identifier) 1]
+                       (sql.qp/->honeysql :bigquery [:= [:datetime-field [:field-id (:id field)] :day-of-week] 1])))))))))))
 
 (deftest reconcile-relative-datetimes-test
   (testing "relative-datetime clauses on their own"
@@ -370,9 +420,9 @@
                               (t/local-date "2019-11-12")]))))
       (mt/test-driver :bigquery
         (mt/with-everything-store
-          (let [expected ["WHERE `test_data.checkins`.`date` BETWEEN ? AND ?"
-                          (t/zoned-date-time "2019-11-11T00:00Z[UTC]")
-                          (t/zoned-date-time "2019-11-12T00:00Z[UTC]")]]
+          (let [expected ["WHERE `v3_test_data.checkins`.`date` BETWEEN ? AND ?"
+                          (t/local-date "2019-11-11")
+                          (t/local-date "2019-11-12")]]
             (testing "Should be able to get temporal type from a FieldInstance"
               (is (= expected
                      (between->sql [:between
@@ -386,7 +436,7 @@
                                     (t/local-date "2019-11-11")
                                     (t/local-date "2019-11-12")]))))
             (testing "Should be able to get temporal type from a wrapped field-id"
-              (is (= (cons "WHERE timestamp_trunc(`test_data.checkins`.`date`, day) BETWEEN ? AND ?"
+              (is (= (cons "WHERE date_trunc(`v3_test_data.checkins`.`date`, day) BETWEEN ? AND ?"
                            (rest expected))
                      (between->sql [:between
                                     [:datetime-field [:field-id (mt/id :checkins :date)] :day]
@@ -417,14 +467,14 @@
       (mt/with-temp-copy-of-db
         (try
           (bigquery.tx/execute!
-           (format "CREATE TABLE `test_data.%s` ( ts TIMESTAMP, dt DATETIME )" table-name))
+           (format "CREATE TABLE `v3_test_data.%s` ( ts TIMESTAMP, dt DATETIME )" table-name))
           (bigquery.tx/execute!
-           (format "INSERT INTO `test_data.%s` (ts, dt) VALUES (TIMESTAMP \"2020-01-01 00:00:00 UTC\", DATETIME \"2020-01-01 00:00:00\")"
+           (format "INSERT INTO `v3_test_data.%s` (ts, dt) VALUES (TIMESTAMP \"2020-01-01 00:00:00 UTC\", DATETIME \"2020-01-01 00:00:00\")"
                    table-name))
           (sync/sync-database! (mt/db))
           (f table-name)
           (finally
-            (bigquery.tx/execute! "DROP TABLE IF EXISTS `test_data.%s`" table-name)))))))
+            (bigquery.tx/execute! "DROP TABLE IF EXISTS `v3_test_data.%s`" table-name)))))))
 
 (deftest filter-by-datetime-timestamp-test
   (mt/test-driver :bigquery
@@ -465,7 +515,7 @@
                        (qp/process-query
                          {:database   (mt/id)
                           :type       :native
-                          :native     {:query         "SELECT count(*) FROM `attempted_murders.attempts` WHERE {{d}}"
+                          :native     {:query         "SELECT count(*) FROM `v3_attempted_murders.attempts` WHERE {{d}}"
                                        :template-tags {"d" {:name         "d"
                                                             :display-name "Date"
                                                             :type         :dimension
@@ -525,10 +575,13 @@
               "Should convert to the correct SQL"))))))
 
 (defn- can-we-filter-against-relative-datetime? [field unit]
-  (let [{:keys [error]} (mt/run-mbql-query attempts
-                          {:aggregation [[:count]]
-                           :filter      [:time-interval (mt/id :attempts field) :last unit]})]
-    (not error)))
+  (try
+    (mt/run-mbql-query attempts
+      {:aggregation [[:count]]
+       :filter      [:time-interval (mt/id :attempts field) :last unit]})
+    true
+    (catch Throwable _
+      false)))
 
 (deftest filter-by-relative-date-ranges-test
   (testing "Make sure the SQL we generate for filters against relative-datetimes is typed correctly"
@@ -551,25 +604,69 @@
                                                                         [:datetime-field [:field-id (:id f)] unit]
                                                                         [:relative-datetime -1 unit]])}))))))))))
 
+(def ^:private filter-test-table
+  [[nil          :minute :hour :day  :week :month :quarter :year]
+   [:time        true    true  false false false  false    false]
+   [:datetime    true    true  true  true  true   true     true]
+   [:date        false   false true  true  true   true     true]
+   [:datetime_tz true    true  true  true  true   true     true]])
+
+(defn- test-table-with-fn [table f]
+  (let [units (rest (first table))]
+    (dorun (pmap (fn [[field & vs]]
+                   (testing (format "\nfield = %s" field)
+                     (dorun (pmap (fn [[unit expected]]
+                                    (let [result (f field unit)]
+                                      (locking f
+                                        (testing (format "\nunit = %s" unit)
+                                          (is (= expected
+                                                 result))))))
+                                  (zipmap units vs)))))
+                 (rest table)))))
+
 (deftest filter-by-relative-date-ranges-e2e-test
   (mt/test-driver :bigquery
     (testing (str "Make sure filtering against relative date ranges works correctly regardless of underlying column "
                   "type (#11725)")
       (mt/dataset attempted-murders
-        (is (= [[nil          :minute :hour :day  :week :month :quarter :year]
-                [:time        true    true  false false false  false    false]
-                [:datetime    true    true  true  true  true   true     true]
-                [:date        false   false true  true  true   true     true]
-                [:datetime_tz true    true  true  true  true   true     true]]
-               (let [units  [:minute :hour :day :week :month :quarter :year]
-                     fields [:time :datetime :date :datetime_tz]]
+        (test-table-with-fn filter-test-table can-we-filter-against-relative-datetime?)))))
 
-                 (into
-                  [(into [nil] units)]
-                  (pmap
-                   (fn [field]
-                     (into [field] (pmap
-                                    (fn [unit]
-                                      (boolean (can-we-filter-against-relative-datetime? field unit)))
-                                    units)))
-                   fields)))))))))
+(def ^:private breakout-test-table
+  [[nil          :default :minute :hour :day  :week :month :quarter :year :minute-of-hour :hour-of-day :day-of-week :day-of-month :day-of-year :week-of-year :month-of-year :quarter-of-year]
+   [:time        true     true    true  false false false  false    false true            true         false        false         false        false         false          false]
+   [:datetime    true     true    true  true  true  true   true     true  true            true         true         true          true         true          true           true]
+   [:date        true     false   false true  true  true   true     true  false           false        true         true          true         true          true           true]
+   [:datetime_tz true     true    true  true  true  true   true     true  true            true         true         true          true         true          true           true]])
+
+(defn- can-breakout? [field unit]
+  (try
+    (mt/run-mbql-query attempts
+      {:aggregation [[:count]]
+       :breakout [[:datetime-field (mt/id :attempts field) unit]]})
+    true
+    (catch Throwable _
+      false)))
+
+(deftest breakout-by-bucketed-datetimes-e2e-test
+  (mt/test-driver :bigquery
+    (testing "Make sure datetime breakouts like :minute-of-hour work correctly for different temporal types"
+      (mt/dataset attempted-murders
+        (test-table-with-fn breakout-test-table can-breakout?)))))
+
+(deftest string-escape-test
+  (mt/test-driver :bigquery
+    (testing "Make sure single quotes in parameters are escaped properly to prevent SQL injection\n"
+      (testing "MBQL query"
+        (is (= [[0]]
+               (mt/formatted-rows [int]
+                 (mt/run-mbql-query venues
+                   {:aggregation [[:count]]
+                    :filter      [:= $name "x\\\\' OR 1 = 1 -- "]})))))
+
+      (testing "native query"
+        (is (= [[0]]
+               (mt/formatted-rows [int]
+                 (qp/process-query
+                  (mt/native-query
+                    {:query  "SELECT count(*) AS `count` FROM `v3_test_data.venues` WHERE `v3_test_data.venues`.`name` = ?"
+                     :params ["x\\\\' OR 1 = 1 -- "]})))))))))

@@ -1,28 +1,24 @@
 (ns metabase.driver.sqlserver-test
-  (:require [clojure
-             [string :as str]
-             [test :refer :all]]
-            [clojure.java.jdbc :as jdbc]
+  (:require [clojure.string :as str]
+            [clojure.test :refer :all]
             [colorize.core :as colorize]
             [honeysql.core :as hsql]
             [java-time :as t]
             [medley.core :as m]
-            [metabase
-             [driver :as driver]
-             [query-processor :as qp]
-             [query-processor-test :as qp.test]]
-            [metabase.driver.sql-jdbc
-             [connection :as sql-jdbc.conn]
-             [execute :as sql-jdbc.execute]]
+            [metabase.driver :as driver]
+            [metabase.driver.sql-jdbc.connection :as sql-jdbc.conn]
+            [metabase.driver.sql-jdbc.execute :as sql-jdbc.execute]
             [metabase.driver.sql.query-processor :as sql.qp]
             [metabase.driver.sql.util.unprepare :as unprepare]
+            [metabase.query-processor :as qp]
+            [metabase.query-processor-test :as qp.test]
             [metabase.query-processor.test-util :as qp.test-util]
-            [metabase.test
-             [data :as data]
-             [util :as tu :refer [obj->json->obj]]]
-            [metabase.test.data
-             [datasets :as datasets]
-             [interface :as tx]]))
+            [metabase.query-processor.timezone :as qp.timezone]
+            [metabase.test :as mt]
+            [metabase.test.data :as data]
+            [metabase.test.data.datasets :as datasets]
+            [metabase.test.data.interface :as tx]
+            [metabase.test.util :as tu :refer [obj->json->obj]]))
 
 ;;; -------------------------------------------------- VARCHAR(MAX) --------------------------------------------------
 
@@ -33,14 +29,15 @@
 
 (tx/defdataset ^:private genetic-data
   [["genetic-data"
-     [{:field-name "gene", :base-type {:native "VARCHAR(MAX)"}}]
-     [[a-gene]]]])
+    [{:field-name "gene", :base-type {:native "VARCHAR(MAX)"}}]
+    [[a-gene]]]])
 
 (datasets/expect-with-driver :sqlserver
   [[1 a-gene]]
-  (-> (data/dataset metabase.driver.sqlserver-test/genetic-data
-        (data/run-mbql-query genetic-data))
-      :data :rows obj->json->obj)) ; convert to JSON + back so the Clob gets stringified
+  (-> (data/dataset metabase.driver.sqlserver-test/genetic-data (data/run-mbql-query genetic-data))
+      :data
+      :rows
+      obj->json->obj)) ; convert to JSON + back so the Clob gets stringified
 
 (deftest connection-spec-test
   (testing "Test that additional connection string options work (#5296)"
@@ -83,10 +80,10 @@
             " ) \"source\" ") ; not sure why this generates an extra space before the closing paren, but it does
    :params nil}
   (qp/query->native
-    (data/mbql-query venues
-      {:source-query {:source-table $$venues
-                      :fields       [$name]
-                      :order-by     [[:asc $id]]}})))
+   (data/mbql-query venues
+     {:source-query {:source-table $$venues
+                     :fields       [$name]
+                     :order-by     [[:asc $id]]}})))
 
 ;; make sure when adding TOP clauses to make ORDER BY work we don't stomp over any explicit TOP clauses that may have
 ;; been set in the query
@@ -100,12 +97,12 @@
                " ) \"source\" ")
    :params nil}
   (qp/query->native
-    (data/mbql-query venues
-      {:source-query {:source-table $$venues
-                      :fields       [$name]
-                      :order-by     [[:asc $id]]
-                      :limit        20}
-       :limit        10})))
+   (data/mbql-query venues
+     {:source-query {:source-table $$venues
+                     :fields       [$name]
+                     :order-by     [[:asc $id]]
+                     :limit        20}
+      :limit        10})))
 
 ;; We don't need to add TOP clauses for top-level order by. Normally we always add one anyway because of the
 ;; max-results stuff, but make sure our impl doesn't add one when it's not in the source MBQL
@@ -121,12 +118,12 @@
    :params nil}
   ;; in order to actually see how things would work without the implicit max-results limit added we'll preprocess
   ;; the query, strip off the `:limit` that got added, and then feed it back to the QP where we left off
-  (let [preprocessed (-> (qp/query->preprocessed
-                           (data/mbql-query venues
-                             {:source-query {:source-table $$venues
-                                             :fields       [$name]
-                                             :order-by     [[:asc $id]]}
-                              :order-by     [[:asc $id]]}))
+  (let [preprocessed (-> (data/mbql-query venues
+                           {:source-query {:source-table $$venues
+                                           :fields       [$name]
+                                           :order-by     [[:asc $id]]}
+                            :order-by     [[:asc $id]]})
+                         qp/query->preprocessed
                          (m/dissoc-in [:query :limit]))]
     (qp.test-util/with-everything-store
       (driver/mbql->native :sqlserver preprocessed))))
@@ -138,41 +135,40 @@
    ["The Apple Pan"]]
   (qp.test/rows
     (qp/process-query
-      (data/mbql-query venues
-        {:source-query {:source-table $$venues
-                        :fields       [$name]
-                        :order-by     [[:asc $id]]
-                        :limit        5}
-         :limit        3}))))
+     (data/mbql-query venues
+       {:source-query {:source-table $$venues
+                       :fields       [$name]
+                       :order-by     [[:asc $id]]
+                       :limit        5}
+        :limit        3}))))
 
 (deftest locale-bucketing-test
   (datasets/test-driver :sqlserver
     (testing (str "Make sure datetime bucketing functions work properly with languages that format dates like "
                   "yyyy-dd-MM instead of yyyy-MM-dd (i.e. not American English) (#9057)")
-      ;; we're doing things here with low-level calls to HoneySQL (emulating what the QP does) instead of using normal QP
-      ;; pathways because `SET LANGUAGE` doesn't seem to persist to subsequent executions so to test that things are
-      ;; working we need to add to in from of the query we're trying to check
-      (jdbc/with-db-transaction [t-conn (sql-jdbc.conn/connection-details->spec :sqlserver
-                                          (tx/dbdef->connection-details :sqlserver :db {:database-name "test-data"}))]
+      ;; we're doing things here with low-level calls to HoneySQL (emulating what the QP does) instead of using normal
+      ;; QP pathways because `SET LANGUAGE` doesn't seem to persist to subsequent executions so to test that things
+      ;; are working we need to add to in from of the query we're trying to check
+      (with-open [conn (sql-jdbc.execute/connection-with-timezone :sqlserver (mt/db) (qp.timezone/report-timezone-id-if-supported))]
+        (.setAutoCommit conn false)
         (try
-          (jdbc/execute! t-conn "CREATE TABLE temp (d DATETIME2);")
-          (jdbc/execute! t-conn ["INSERT INTO temp (d) VALUES (?)" #t "2019-02-08T00:00:00Z"])
-          (let [[sql & args] (hsql/format {:select [[(sql.qp/date :sqlserver :month :temp.d) :my-date]]
-                                           :from   [:temp]}
-                               :quoting :ansi, :allow-dashed-names? true)
-                result       (jdbc/query t-conn (cons (str "SET LANGUAGE Italian; " sql) args)
-                                         {:read-columns   (partial sql-jdbc.execute/read-columns :sqlserver)
-                                          :set-parameters (partial sql-jdbc.execute/set-parameters :sqlserver)})]
-            (is (= [{:my-date #t "2019-02-01"}]
-                   result)))
+          (doseq [[sql & params] [["DROP TABLE IF EXISTS temp;"]
+                                  ["CREATE TABLE temp (d DATETIME2);"]
+                                  ["INSERT INTO temp (d) VALUES (?)" #t "2019-02-08T00:00:00Z"]
+                                  ["SET LANGUAGE Italian;"]]]
+            (with-open [stmt (sql-jdbc.execute/prepared-statement :sqlserver conn sql params)]
+              (.execute stmt)))
+          (let [[sql & params] (hsql/format {:select [[(sql.qp/date :sqlserver :month :temp.d) :my-date]]
+                                             :from   [:temp]}
+                                 :quoting :ansi, :allow-dashed-names? true)]
+            (with-open [stmt (sql-jdbc.execute/prepared-statement :sqlserver conn sql params)
+                        rs   (sql-jdbc.execute/execute-query! :sqlserver stmt)]
+              (let [row-thunk (sql-jdbc.execute/row-thunk :sqlserver rs (.getMetaData rs))]
+                (is (= [#t "2019-02-01"]
+                       (row-thunk))))))
           ;; rollback transaction so `temp` table gets discarded
-          (finally (.rollback (jdbc/get-connection t-conn))))))))
-
-(defn- query [sql-args]
-  (jdbc/query
-   (sql-jdbc.conn/db->pooled-connection-spec (data/db))
-   sql-args
-   {:read-columns (partial sql-jdbc.execute/read-columns driver/*driver*)}))
+          (finally
+            (.rollback conn)))))))
 
 (deftest unprepare-test
   (datasets/test-driver :sqlserver
@@ -187,12 +183,17 @@
                             ;; LocalTime (?)
                             [(t/offset-time time (t/zone-offset -8)) (t/local-time 3 27)]
                             [(t/offset-date-time (t/local-date-time date time) (t/zone-offset -8))]
-                            ;; since SQL Server doesn't support timezone IDs it should be converted to an offset in the literal
+                            ;; since SQL Server doesn't support timezone IDs it should be converted to an offset in
+                            ;; the literal
                             [(t/zoned-date-time  date time (t/zone-id "America/Los_Angeles"))
                              (t/offset-date-time (t/local-date-time date time) (t/zone-offset -8))]]]
         (let [expected (or expected t)]
           (testing (format "Convert %s to SQL literal" (colorize/magenta (with-out-str (pr t))))
             (let [sql (format "SELECT %s AS t;" (unprepare/unprepare-value :sqlserver t))]
-              (is (= expected
-                     (-> (query sql) first :t))
-                  (format "SQL %s should return %s" (colorize/blue sql) (colorize/green expected))))))))))
+              (with-open [conn (sql-jdbc.execute/connection-with-timezone :sqlserver (mt/db) nil)
+                          stmt (sql-jdbc.execute/prepared-statement :sqlserver conn sql nil)
+                          rs   (sql-jdbc.execute/execute-query! :sqlserver stmt)]
+                (let [row-thunk (sql-jdbc.execute/row-thunk :sqlserver rs (.getMetaData rs))]
+                  (is (= [expected]
+                         (row-thunk))
+                      (format "SQL %s should return %s" (colorize/blue (pr-str sql)) (colorize/green expected))))))))))))

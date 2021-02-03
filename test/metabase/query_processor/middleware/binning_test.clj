@@ -1,8 +1,11 @@
 (ns metabase.query-processor.middleware.binning-test
-  (:require [expectations :refer [expect]]
+  (:require [clojure.test :refer :all]
+            [expectations :refer [expect]]
+            [metabase.models.card :refer [Card]]
             [metabase.models.field :as field :refer [Field]]
             [metabase.query-processor.middleware.binning :as binning]
             [metabase.query-processor.test-util :as qp.test-util]
+            [metabase.test :as mt]
             [metabase.test.data :as data]
             [metabase.util :as u]
             [toucan.util.test :as tt]))
@@ -126,11 +129,13 @@
    :type     :query
    :database (data/id)}
   (qp.test-util/with-everything-store
-    ((binning/update-binning-strategy identity)
-     {:query    {:source-table (data/id :checkins)
-                 :breakout     [[:binning-strategy [:field-id (u/get-id field)] :default]]}
-      :type     :query
-      :database (data/id)})))
+    (:pre
+     (mt/test-qp-middleware
+      binning/update-binning-strategy
+      {:query    {:source-table (data/id :checkins)
+                  :breakout     [[:binning-strategy [:field-id (u/get-id field)] :default]]}
+       :type     :query
+       :database (data/id)}))))
 
 ;; make sure `update-binning-strategy` works recursively on nested queries
 (tt/expect-with-temp [Field [field (test-field)]]
@@ -144,9 +149,25 @@
    :type     :query
    :database (data/id)}
   (qp.test-util/with-everything-store
-    ((binning/update-binning-strategy identity)
-     {:query    {:source-query
-                 {:source-table (data/id :checkins)
-                  :breakout     [[:binning-strategy [:field-id (u/get-id field)] :default]]}}
-      :type     :query
-      :database (data/id)})))
+    (:pre
+     (mt/test-qp-middleware
+      binning/update-binning-strategy
+      {:query    {:source-query
+                  {:source-table (data/id :checkins)
+                   :breakout     [[:binning-strategy [:field-id (u/get-id field)] :default]]}}
+       :type     :query
+       :database (data/id)}))))
+
+(deftest bining-nested-questions-test
+  (mt/with-temp Card [{card-id :id} {:dataset_query {:database (mt/id)
+                                                     :type     :query
+                                                     :query    {:source-table (mt/id :venues)}}}]
+    (is (= [[1 22]
+            [2 59]
+            [3 13]
+            [4 6]]
+         (->> (mt/run-mbql-query nil
+                {:source-table (str "card__" card-id)
+                 :breakout     [[:binning-strategy [:field-literal "PRICE" :type/Float] :default]]
+                 :aggregation  [[:count]]})
+              (mt/formatted-rows [int int]))))))

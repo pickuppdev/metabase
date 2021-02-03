@@ -24,15 +24,15 @@ import { setParameterMapping } from "../dashboard";
 import cx from "classnames";
 import { getIn } from "icepick";
 
-import type { Card } from "metabase/meta/types/Card";
-import type { DashCard } from "metabase/meta/types/Dashboard";
+import type { Card } from "metabase-types/types/Card";
+import type { DashCard } from "metabase-types/types/Dashboard";
 import type {
   Parameter,
   ParameterId,
   ParameterMappingUIOption,
   ParameterTarget,
-} from "metabase/meta/types/Parameter";
-import type { DatabaseId } from "metabase/meta/types/Database";
+} from "metabase-types/types/Parameter";
+import type { DatabaseId } from "metabase-types/types/Database";
 
 import type { MappingsByParameter } from "../selectors";
 import AtomicQuery from "metabase-lib/lib/queries/AtomicQuery";
@@ -114,6 +114,17 @@ export default class DashCardCardParameterMapper extends Component {
       mapping.overlapMax === 1
     );
 
+    let selectedFieldWarning = null;
+    if (
+      // variable targets can't accept an list of values like dimension targets
+      target &&
+      target[0] === "variable" &&
+      // date parameters only accept a single value anyways, so hide the warning
+      !parameter.type.startsWith("date/")
+    ) {
+      selectedFieldWarning = t`This field only accepts a single value because it's used in a SQL query.`;
+    }
+
     return (
       <div className="mx1 flex flex-column align-center drag-disabled">
         {dashcard.series && dashcard.series.length > 0 && (
@@ -130,6 +141,7 @@ export default class DashCardCardParameterMapper extends Component {
           </div>
         )}
 
+        <h4 className="text-medium mb1">{t`Column to filter on`}</h4>
         <ParameterTargetWidget
           target={target}
           onChange={this.handleChangeTarget}
@@ -161,14 +173,15 @@ export default class DashCardCardParameterMapper extends Component {
                   {disabled
                     ? t`No valid fields`
                     : selected
-                    ? selected.name
+                    ? formatSelected(selected)
                     : t`Select…`}
                 </span>
                 {selected ? (
                   <Icon
                     className="flex-align-right"
                     name="close"
-                    size={16}
+                    style={{ marginTop: 3 }}
+                    size={12}
                     onClick={e => {
                       this.handleChangeTarget(null);
                       e.stopPropagation();
@@ -178,14 +191,28 @@ export default class DashCardCardParameterMapper extends Component {
                   <Icon
                     className="flex-align-right"
                     name="chevrondown"
-                    size={16}
+                    style={{ marginTop: 2 }}
+                    size={12}
                   />
                 ) : null}
               </div>
             </Tooltip>
           )}
         </ParameterTargetWidget>
+        {selectedFieldWarning && (
+          <span style={{ height: 0 }} className="mt1 mbn1 px4 text-centered">
+            {selectedFieldWarning}
+          </span>
+        )}
       </div>
     );
   }
+}
+
+function formatSelected({ name, sectionName }) {
+  if (sectionName == null) {
+    // for native question variables or field literals we just display the name
+    return name;
+  }
+  return `${sectionName}.${name}`;
 }

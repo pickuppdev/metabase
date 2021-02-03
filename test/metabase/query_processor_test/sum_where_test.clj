@@ -1,15 +1,14 @@
 (ns metabase.query-processor-test.sum-where-test
-  (:require [metabase.models
-             [metric :refer [Metric]]
-             [segment :refer [Segment]]]
+  (:require [metabase.models.metric :refer [Metric]]
+            [metabase.models.segment :refer [Segment]]
             [metabase.query-processor-test :refer :all]
-            [metabase.test
-             [data :as data]
-             [util :as tu]]
+            [metabase.test :as mt]
+            [metabase.test.data :as data]
             [metabase.test.data.datasets :as datasets]
+            [metabase.test.util :as tu]
             [toucan.util.test :as tt]))
 
-(datasets/expect-with-drivers (non-timeseries-drivers-with-feature :basic-aggregations)
+(datasets/expect-with-drivers (mt/normal-drivers-with-feature :basic-aggregations)
   179.0
   (->> {:aggregation [[:sum-where [:field-id (data/id :venues :price)] [:< [:field-id (data/id :venues :price)] 4]]]}
        (data/run-mbql-query venues)
@@ -18,7 +17,7 @@
        double))
 
 ;; Test normalization
-(datasets/expect-with-drivers (non-timeseries-drivers-with-feature :basic-aggregations)
+(datasets/expect-with-drivers (mt/normal-drivers-with-feature :basic-aggregations)
   179.0
   (->> {:aggregation [["sum-where" ["field-id" (data/id :venues :price)] ["<" ["field-id" (data/id :venues :price)] 4]]]}
        (data/run-mbql-query venues)
@@ -26,7 +25,7 @@
        ffirst
        double))
 
-(datasets/expect-with-drivers (non-timeseries-drivers-with-feature :basic-aggregations)
+(datasets/expect-with-drivers (mt/normal-drivers-with-feature :basic-aggregations)
   34.0
   (->> {:aggregation [[:sum-where
                        [:field-id (data/id :venues :price)]
@@ -38,7 +37,7 @@
        ffirst
        double))
 
-(datasets/expect-with-drivers (non-timeseries-drivers-with-feature :basic-aggregations)
+(datasets/expect-with-drivers (mt/normal-drivers-with-feature :basic-aggregations)
   nil
   (->> {:aggregation [[:sum-where [:field-id (data/id :venues :price)] [:< [:field-id (data/id :venues :price)] 4]]]
         :filter      [:> [:field-id (data/id :venues :price)] Long/MAX_VALUE]}
@@ -46,7 +45,7 @@
        rows
        ffirst))
 
-(datasets/expect-with-drivers (non-timeseries-drivers-with-feature :basic-aggregations)
+(datasets/expect-with-drivers (mt/normal-drivers-with-feature :basic-aggregations)
   [[2 0.0]
    [3 0.0]
    [4 1.0]
@@ -60,7 +59,7 @@
        (map (fn [[k v]]
               [(long k) (double v)]))))
 
-(datasets/expect-with-drivers (non-timeseries-drivers-with-feature :basic-aggregations :expressions)
+(datasets/expect-with-drivers (mt/normal-drivers-with-feature :basic-aggregations :expressions)
   90.5
   (->> {:aggregation [[:+ [:/ [:sum-where [:field-id (data/id :venues :price)] [:< [:field-id (data/id :venues :price)] 4]] 2] 1]]}
        (data/run-mbql-query venues)
@@ -68,7 +67,7 @@
        ffirst
        double))
 
-(datasets/expect-with-drivers (non-timeseries-drivers-with-feature :basic-aggregations)
+(datasets/expect-with-drivers (mt/normal-drivers-with-feature :basic-aggregations)
   179.0
   (tt/with-temp* [Segment [{segment-id :id} {:table_id   (data/id :venues)
                                              :definition {:source-table (data/id :venues)
@@ -79,7 +78,7 @@
          ffirst
          double)))
 
-(datasets/expect-with-drivers (non-timeseries-drivers-with-feature :basic-aggregations)
+(datasets/expect-with-drivers (mt/normal-drivers-with-feature :basic-aggregations)
   179.0
   (tt/with-temp* [Metric [{metric-id :id} {:table_id   (data/id :venues)
                                            :definition {:source-table (data/id :venues)

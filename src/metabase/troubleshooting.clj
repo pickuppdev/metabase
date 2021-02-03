@@ -1,8 +1,7 @@
 (ns metabase.troubleshooting
   (:require [clojure.java.jdbc :as jdbc]
-            [metabase
-             [config :as mc]
-             [db :as mdb]]
+            [metabase.config :as mc]
+            [metabase.db :as mdb]
             [metabase.models.setting :as setting]
             [metabase.util.stats :as mus]
             [toucan.db :as db]))
@@ -21,7 +20,8 @@
                                              "os.name"
                                              "os.version"
                                              "user.language"
-                                             "user.timezone"])))
+                                             "user.timezone"
+                                             "file.encoding"])))
 
 (defn metabase-info
   "Make it easy for the user to tell us what they're using"

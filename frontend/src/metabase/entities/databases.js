@@ -9,6 +9,7 @@ import { fetchData, createThunkAction } from "metabase/lib/redux";
 import { MetabaseApi } from "metabase/services";
 import { DatabaseSchema } from "metabase/schema";
 import Fields from "metabase/entities/fields";
+import Schemas from "metabase/entities/schemas";
 
 import { getMetadata, getFields } from "metabase/selectors/metadata";
 import { createSelector } from "reselect";
@@ -19,6 +20,8 @@ import forms from "./databases/forms";
 export const FETCH_DATABASE_METADATA =
   "metabase/entities/database/FETCH_DATABASE_METADATA";
 
+export const FETCH_DATABASE_SCHEMAS =
+  "metabase/entities/database/FETCH_DATABASE_SCHEMAS";
 export const FETCH_DATABASE_IDFIELDS =
   "metabase/entities/database/FETCH_DATABASE_IDFIELDS";
 
@@ -34,7 +37,7 @@ const Databases = createEntity({
   objectActions: {
     fetchDatabaseMetadata: createThunkAction(
       FETCH_DATABASE_METADATA,
-      ({ id }, reload = false) => (dispatch, getState) =>
+      ({ id }, { reload = false, params } = {}) => (dispatch, getState) =>
         fetchData({
           dispatch,
           getState,
@@ -43,6 +46,7 @@ const Databases = createEntity({
           getData: async () => {
             const databaseMetadata = await MetabaseApi.db_metadata({
               dbId: id,
+              ...params,
             });
             return normalize(databaseMetadata, DatabaseSchema);
           },
@@ -55,6 +59,8 @@ const Databases = createEntity({
       ({ id }) => async () =>
         normalize(await MetabaseApi.db_idfields({ dbId: id }), [Fields.schema]),
     ),
+
+    fetchSchemas: ({ id }) => Schemas.actions.fetchList({ dbId: id }),
   },
 
   selectors: {

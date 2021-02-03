@@ -4,7 +4,7 @@
 
     (deftest my-test
       ;; run tests against all drivers except Druid
-      (datasets/test-drivers qp.test/non-timeseries-drivers
+      (mt/test-drivers (mt/normal-drivers)
         ...))
 
   When the test suite is ran, those tests will be ran against the subset of those drivers that are present in the
@@ -15,9 +15,8 @@
   (:require [clojure.test :as t]
             [colorize.core :as colorize]
             [metabase.driver :as driver]
-            [metabase.test.data
-             [env :as tx.env]
-             [interface :as tx]]))
+            [metabase.test.data.env :as tx.env]
+            [metabase.test.data.interface :as tx]))
 
 (defn do-when-testing-driver
   "Call function `f` (always with no arguments) *only* if we are currently testing against `driver` (i.e., if `driver`
@@ -36,15 +35,17 @@
   [driver & body]
   `(do-when-testing-driver ~driver (fn [] ~@body)))
 
+(defn do-with-driver-when-testing [driver thunk]
+  (when-testing-driver driver
+    (driver/with-driver (tx/the-driver-with-test-extensions driver)
+      (thunk))))
+
 (defmacro with-driver-when-testing
   "When `driver` is specified in `DRIVERS` env var, binds `metabase.driver/*driver*` and executes `body`. The currently
   bound driver is used for calls like `(data/db)` and `(data/id)`."
   {:style/indent 1}
   [driver & body]
-  `(let [driver# ~driver]
-     (when-testing-driver driver#
-       (driver/with-driver (tx/the-driver-with-test-extensions driver#)
-         ~@body))))
+  `(do-with-driver-when-testing ~driver (fn [] ~@body)))
 
 (defmacro test-driver
   "Like `test-drivers`, but for a single driver."

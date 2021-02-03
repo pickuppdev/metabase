@@ -1,16 +1,15 @@
 (ns metabase.query-processor.middleware.expand-macros-test
   (:require [expectations :refer [expect]]
-            [metabase
-             [query-processor-test :as qp.test]
-             [util :as u]]
-            [metabase.models
-             [database :refer [Database]]
-             [metric :refer [Metric]]
-             [segment :refer [Segment]]
-             [table :refer [Table]]]
+            [metabase.models.database :refer [Database]]
+            [metabase.models.metric :refer [Metric]]
+            [metabase.models.segment :refer [Segment]]
+            [metabase.models.table :refer [Table]]
+            [metabase.query-processor-test :as qp.test]
             [metabase.query-processor.middleware.expand-macros :as expand-macros]
+            [metabase.test :as mt]
             [metabase.test.data :as data]
             [metabase.test.data.datasets :as datasets]
+            [metabase.util :as u]
             [toucan.util.test :as tt]))
 
 (defn- mbql-query [inner-query]
@@ -148,7 +147,7 @@
        :order-by     [[:asc [:field-id 1]]]}))))
 
 ;; Check that a metric w/ multiple aggregation syntax (nested vector) still works correctly
-(datasets/expect-with-drivers (qp.test/non-timeseries-drivers-with-feature :expression-aggregations)
+(datasets/expect-with-drivers (mt/normal-drivers-with-feature :expression-aggregations)
   [[2 118]
    [3  39]
    [4  24]]

@@ -6,6 +6,8 @@ import Question from "metabase-lib/lib/Question";
 
 export const activity = "/activity";
 
+export const exportFormats = ["csv", "xlsx", "json"];
+
 export const newQuestionFlow = () => "/question/new";
 
 export const newDashboard = collectionId =>
@@ -170,9 +172,9 @@ export function browseDatabase(database) {
 }
 
 export function browseSchema(table) {
-  return `/browse/${table.db.id}/schema/${table.schema}`;
+  return `/browse/${table.db.id}/schema/${table.schema_name}`;
 }
 
 export function browseTable(table) {
-  return `/browse/${table.db.id}/schema/${table.schema}`;
+  return `/browse/${table.db.id}/schema/${table.schema_name}`;
 }
