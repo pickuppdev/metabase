@@ -54,7 +54,21 @@ const QueryDownloadWidget = ({
       <Box>
         {EXPORT_FORMATS.map(type => (
           <Box key={type} w={"100%"}>
-            {dashcardId && token ? (
+            {type === 'copy' ? (
+              <DownloadButton
+                key={type}
+                onClick={(e) => {
+                  e.preventDefault()
+                  const text = result.data.rows.map(r => r.map(c => String(c == null ? '' : c).replace(/[\r\n\t]/g, ' ')).join('\t')).join('\n')
+                  navigator.clipboard
+                    .writeText(text)
+                    .then(() => window.alert(t`Result copied to clipboard.`));
+                }}
+                extensions={[type]}
+              >
+                {type}
+              </DownloadButton>
+            ) : dashcardId && token ? (
               <DashboardEmbedQueryButton
                 key={type}
                 type={type}
